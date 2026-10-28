@@ -50,6 +50,9 @@ export interface IErrorResponseData {
  */
 class APIClient {
 
+    // Cloudflare Access のセッション切れを確認中かどうか (複数の API リクエストが同時に失敗したときに重複して確認しないため)
+    private static is_checking_cloudflare_access_session = false;
+
     /**
      * Axios で HTTP リクエストを送信し、レスポンスを受け取る
      * @param request AxiosRequestConfig
@@ -113,6 +116,10 @@ class APIClient {
 
             // エラーレスポンスがない場合は、AxiosError のみを IErrorResponse に入れて返す
             } else {
+                // KonomiTV サーバーへのリクエストがネットワークエラーになった場合、Cloudflare Access のセッション切れの可能性がある
+                if (result.code === AxiosError.ERR_NETWORK && request.url?.startsWith('http') === false) {
+                    APIClient.checkCloudflareAccessSession();
+                }
                 return {
                     type: 'error',
                     status: NaN,  // ステータスコードは取得できないので NaN にする
@@ -130,6 +137,52 @@ class APIClient {
                 status: result.status,
                 data: result.data,
             };
+        }
+    }
+
+
+    /**
+     * Cloudflare Access のセッションが切れていないかを確認し、切れていればログイン画面を経由してページを開き直す
+     * セッションが切れると API リクエストは Cloudflare Access のログイン画面 (別オリジン) にリダイレクトされて Network Error になるが、
+     * 画面自体は Service Worker のキャッシュから表示されるため、そのままではログイン画面に遷移するきっかけがない
+     * そこで API へのリクエストがリダイレクトされるかを確認し、リダイレクトされる場合は Service Worker の登録を解除してからリロードする
+     * (登録を解除するとリロード時のページ読み込みがサーバーに届くので、Cloudflare Access のログイン画面にリダイレクトされる)
+     */
+    private static async checkCloudflareAccessSession(): Promise<void> {
+
+        // Web Worker 上 (ページをリロードできない) または既に確認中なら何もしない
+        if (typeof window === 'undefined' || APIClient.is_checking_cloudflare_access_session === true) {
+            return;
+        }
+        APIClient.is_checking_cloudflare_access_session = true;
+
+        try {
+            // KonomiTV サーバーの API はリダイレクトを返さないので、リダイレクトされた場合は Cloudflare Access によるものとみなす
+            // オフライン時などは fetch() 自体が失敗して catch に入るので、何もしない
+            const response = await fetch(`${Utils.api_base_url}/version`, {redirect: 'manual', cache: 'no-store'});
+            if (response.type !== 'opaqueredirect') {
+                return;
+            }
+
+            // ログインしても状況が変わらない場合に、リロードを繰り返さないようにする
+            const last_reloaded_at = Number(sessionStorage.getItem('KonomiTV-CloudflareAccessReloadedAt') ?? 0);
+            if (Date.now() - last_reloaded_at < 60 * 1000) {
+                return;
+            }
+            sessionStorage.setItem('KonomiTV-CloudflareAccessReloadedAt', Date.now().toString());
+
+            // Service Worker の登録を解除してからリロードし、Cloudflare Access のログイン画面にリダイレクトさせる
+            // キャッシュ自体は残るので、ログイン後に Service Worker が再登録される際にファイルが再ダウンロードされることはない
+            console.warn('Cloudflare Access session seems to have expired. Reloading to log in again.');
+            if ('serviceWorker' in navigator) {
+                const registrations = await navigator.serviceWorker.getRegistrations();
+                await Promise.all(registrations.map((registration) => registration.unregister()));
+            }
+            location.reload();
+        } catch (error) {
+            console.error(error);
+        } finally {
+            APIClient.is_checking_cloudflare_access_session = false;
         }
     }
 
