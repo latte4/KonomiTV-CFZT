@@ -20,6 +20,7 @@
 - [x] **Cloudflare Zero Trust 対応**
   - `feature/cloudflare-zerotrust` ブランチ ([#20](https://github.com/mori2163/KonomiTV/pull/20))
   - Akebi を無効化し、cloudflared トンネル経由でのアクセスに対応。
+  - Cloudflare Access のセッションが切れたとき、Service Worker のキャッシュから表示された画面のまま Network Error になるのではなく、自動でログイン画面に遷移するように。
   
 - クライアントビルドボタンの実装([#19](https://github.com/mori2163/KonomiTV/pull/19))
 
