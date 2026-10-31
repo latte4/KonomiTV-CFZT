@@ -12,14 +12,9 @@
             <Icon class="watch-navigation__link-icon" icon="fluent:tv-20-regular" width="26px" />
         </router-link>
         <router-link v-ripple class="watch-navigation__link" active-class="watch-navigation__link--active"
-            :class="{'watch-navigation__link--active': $route.path.startsWith('/videos') && !$route.path.startsWith('/videos/offline')}"
+            :class="{'watch-navigation__link--active': $route.path.startsWith('/videos')}"
             v-ftooltip.right="'ビデオをみる'"  to="/videos/">
             <Icon class="watch-navigation__link-icon" icon="fluent:movies-and-tv-20-regular" width="26px" />
-        </router-link>
-        <router-link v-ripple class="watch-navigation__link" active-class="watch-navigation__link--active"
-            :class="{'watch-navigation__link--active': $route.path.startsWith('/videos/offline')}"
-            v-ftooltip.right="'オフライン視聴'" to="/videos/offline">
-            <Icon class="watch-navigation__link-icon" icon="fluent:cloud-download-20-regular" width="26px" />
         </router-link>
         <router-link v-ripple class="watch-navigation__link" active-class="watch-navigation__link--active"
             :class="{'watch-navigation__link--active': $route.path.startsWith('/timetable')}"
@@ -35,6 +30,14 @@
             :class="{'watch-navigation__link--active': $route.path.startsWith('/captures')}"
             v-ftooltip.right="'キャプチャ'" to="/captures/">
             <Icon class="watch-navigation__link-icon" icon="fluent:image-multiple-24-regular" width="26px" />
+        </router-link>
+        <router-link v-ripple class="watch-navigation__link" active-class="watch-navigation__link--active"
+            :class="{'watch-navigation__link--active': $route.path.startsWith('/offline-videos')}"
+            v-ftooltip.right="'オフライン保存'" to="/offline-videos/">
+            <span class="watch-navigation__link-icon-wrapper">
+                <Icon class="watch-navigation__link-icon" icon="fluent:cloud-arrow-down-16-regular" width="26px" />
+                <OfflineDownloadBadge variant="overlay" />
+            </span>
         </router-link>
         <router-link v-ripple class="watch-navigation__link" active-class="watch-navigation__link--active"
             :class="{'watch-navigation__link--active': $route.path.startsWith('/mylist')}"
@@ -59,10 +62,14 @@
 import { mapStores } from 'pinia';
 import { defineComponent } from 'vue';
 
+import OfflineDownloadBadge from '@/components/OfflineDownloadBadge.vue';
 import usePlayerStore from '@/stores/PlayerStore';
 
 export default defineComponent({
     name: 'Watch-Navigation',
+    components: {
+        OfflineDownloadBadge,
+    },
     computed: {
         ...mapStores(usePlayerStore),
     }
@@ -144,6 +151,13 @@ export default defineComponent({
 
         &:hover {
             background: #433532A0;
+        }
+
+        .watch-navigation__link-icon-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         @include smartphone-horizontal {

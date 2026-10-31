@@ -1,7 +1,7 @@
 <template>
     <div class="recorded-program-list" :class="{'recorded-program-list--show-sort': !hideSort}">
         <div class="recorded-program-list__header" v-if="!hideHeader">
-            <h2 class="recorded-program-list__title" :class="{'recorded-program-list__title--count-at-right': countAtRight}">
+            <h2 class="recorded-program-list__title">
                 <div v-if="showBackButton" v-ripple class="recorded-program-list__title-back" @click="$router.back()">
                     <Icon icon="fluent:chevron-left-12-filled" width="27px" />
                 </div>
@@ -11,7 +11,6 @@
                         <Icon icon="line-md:loading-twotone-loop" class="mr-1 spin" width="20px" height="20px" />
                         <span>検索中...</span>
                     </template>
-                    <template v-else-if="countText !== null">{{countText}}</template>
                     <template v-else>{{displayTotal}}件</template>
                 </div>
             </h2>
@@ -46,6 +45,7 @@
                 </v-btn>
             </div>
         </div>
+        <slot name="after-header"></slot>
         <div class="recorded-program-list__grid"
             :class="{
                 'recorded-program-list__grid--loading': isLoading || isSearching,
@@ -65,8 +65,12 @@
             </div>
             <div class="recorded-program-list__grid-content">
                 <RecordedProgram v-for="program in displayPrograms" :key="program.id" :program="program"
-                    :forMylist="forMylist" :forWatchedHistory="forWatchedHistory"
-                    :forOffline="forOffline" @deleted="handleProgramDeleted" />
+                    :forMylist="forMylist" :forWatchedHistory="forWatchedHistory" :forOffline="forOffline"
+                    :offlineVideo="offlineVideos?.find(video => video.video_id === program.id) ?? null"
+                    :offlineDownloadJob="getOfflineDownloadJob(program.id)"
+                    @deleted="handleProgramDeleted"
+                    @cancelOfflineJob="jobID => $emit('cancelOfflineJob', jobID)"
+                    @dismissOfflineJob="jobID => $emit('dismissOfflineJob', jobID)" />
             </div>
         </div>
         <div class="recorded-program-list__pagination" v-if="!hidePagination && displayTotal > 0">
@@ -86,8 +90,10 @@
 import { ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
+import type { IOfflineDownloadJob, IOfflineVideo } from '@/services/OfflineVideos';
+
 import RecordedProgram from '@/components/Videos/RecordedProgram.vue';
-import { IRecordedProgram, MylistSortOrder, SortOrder } from '@/services/Videos';
+import { type IRecordedProgram, MylistSortOrder, SortOrder } from '@/services/Videos';
 import Utils from '@/utils';
 
 const router = useRouter();
@@ -110,11 +116,11 @@ const props = withDefaults(defineProps<{
     emptySubMessage?: string;
     isLoading?: boolean;
     isSearching?: boolean;
-    countText?: string | null;
-    countAtRight?: boolean;
     forMylist?: boolean;
     forWatchedHistory?: boolean;
     forOffline?: boolean;
+    offlineVideos?: IOfflineVideo[];
+    offlineJobs?: IOfflineDownloadJob[];
 }>(), {
     page: 1,
     sortOrder: 'desc',
@@ -129,11 +135,11 @@ const props = withDefaults(defineProps<{
     emptySubMessage: 'サーバー設定で録画フォルダのパスを<br class="d-sm-none">正しく設定できているか確認してください。',
     isLoading: false,
     isSearching: false,
-    countText: null,
-    countAtRight: false,
     forMylist: false,
     forWatchedHistory: false,
     forOffline: false,
+    offlineVideos: undefined,
+    offlineJobs: undefined,
 });
 
 // Emits
@@ -141,6 +147,8 @@ defineEmits<{
     (e: 'update:page', page: number): void;
     (e: 'update:sortOrder', order: SortOrder | MylistSortOrder): void;
     (e: 'more'): void;
+    (e: 'cancelOfflineJob', jobID: string): void;
+    (e: 'dismissOfflineJob', jobID: string): void;
 }>();
 
 // 現在のページ番号
@@ -182,6 +190,13 @@ const handleProgramDeleted = (id: number) => {
     displayTotal.value--;
 };
 
+/** 一覧に表示する保存ジョブを取得する */
+const getOfflineDownloadJob = (videoID: number): IOfflineDownloadJob | null => {
+    return props.offlineJobs?.find(job =>
+        job.video_id === videoID && ['Waiting', 'Downloading', 'Finalizing', 'Failed'].includes(job.state),
+    ) ?? null;
+};
+
 </script>
 <style lang="scss" scoped>
 
@@ -213,10 +228,8 @@ const handleProgramDeleted = (id: number) => {
     &__title {
         display: flex;
         align-items: center;
-        justify-content: space-between;
         position: relative;
-        width: 100%;
-        min-width: 0;  // 長いタイトルや件数表示があると幅を押し広げてしまうため、狭い画面では縮小できるようにする
+        min-width: 0;  // 長い検索語や一覧名は省略表示へ倒し、右側の操作ボタンを画面内に残す
         font-size: 24px;
         font-weight: 700;
         padding-top: 8px;
@@ -224,12 +237,6 @@ const handleProgramDeleted = (id: number) => {
         @include smartphone-vertical {
             font-size: 22px;
             padding-bottom: 16px;
-        }
-
-        // 件数/容量表示を右端に寄せる（オフライン視聴ページ用）
-        &--count-at-right {
-            flex: 1;
-            min-width: 0;  // flex: 1 でも自動最小サイズで縮まないため、明示的に縮小を許可する
         }
 
         &-back {
@@ -256,7 +263,7 @@ const handleProgramDeleted = (id: number) => {
             align-items: center;
             flex-shrink: 0;
             padding-top: 8px;
-            margin-left: auto;
+            margin-left: 12px;
             font-size: 14px;
             font-weight: 400;
             color: rgb(var(--v-theme-text-darken-1));
@@ -275,7 +282,6 @@ const handleProgramDeleted = (id: number) => {
             }
         }
 
-        // タイトルは長い場合に省略表示（…）へ倒し、右側の件数/操作ボタンを画面内に残す
         &-text {
             min-width: 0;
             overflow: hidden;
